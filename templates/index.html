@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Chat Locally</title>
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+				font-family: Arial, sans-serif;
+				box-sizing: border-box;
+			}
+
+			body {
+				height: 100vh;
+				display: flex;
+				flex-direction: column;
+			}
+
+			h1 {
+				font-size: 10vh;
+				text-align: center;
+			}
+
+			main {
+				display: grid;
+				grid-template-columns: 20vw 75vw;
+				gap: 1rem;
+				padding: 1rem;
+				margin: 0.9rem;
+				border-radius: 10px;
+				background-color: rgba(224, 221, 221, 0.507);
+			}
+
+			.contacts {
+				background-color: aliceblue;
+				height: 80vh;
+				overflow: auto;
+				border-radius: 10px;
+				padding: 1rem;
+			}
+
+			.contact {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 1rem;
+				border-radius: 10px;
+			}
+
+			.contact:hover {
+				cursor: pointer;
+			}
+
+			.active-contact {
+				background-color: rgba(0, 0, 0, 0.2);
+			}
+
+			.chatbox {
+				border-radius: 10px;
+				background-color: beige;
+				overflow: auto;
+				display: flex;
+				flex-direction: column;
+				justify-content: space-between;
+				/* padding: 0.2rem; */
+			}
+
+			.topbar {
+				background-color: darkgray;
+				padding: 0.5rem;
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+			}
+
+			.chatarea {
+				height: 66vh;
+				overflow-y: auto;
+			}
+
+			.chat {
+				display: flex;
+				margin: 0.25rem 1rem;
+			}
+
+			.message {
+				background-color: lightblue;
+				padding: 0.5rem;
+				border-radius: 10px;
+				display: flex;
+			}
+
+			.sent {
+				justify-content: flex-end;
+			}
+
+			.recieved {
+				justify-content: flex-start;
+			}
+
+			.timestamp {
+				font-size: 0.7rem;
+				margin-left: 0.5rem;
+				text-align: end;
+				vertical-align: bottom;
+				margin-top: auto;
+			}
+
+			.messagebar {
+				display: flex;
+				padding: 0.5rem;
+				background-color: rgba(0, 0, 0, 0.1);
+			}
+
+			input[type="text"] {
+				padding: 0.5rem;
+				margin-right: 0.5rem;
+				width: 90%;
+			}
+
+			#sendmessage {
+				background-color: rgba(19, 150, 19, 0.8);
+				padding: 0.5rem;
+				border: none;
+				cursor: pointer;
+				width: 10%;
+			}
+
+			.dot{
+				height: 0.5rem;
+				width: 0.5rem;
+				border-radius: 50%;
+				background-color: green;
+			}
+		</style>
+	</head>
+
+	<body>
+		<h1>Chat Locally</h1>
+		<main>
+			<div class="contacts" id="contacts">
+				{% for user in users %}
+					<div class="contact" onclick="return selectContact(this)" data-id="{{ user.id }}">
+						<div class="name">{{ user.username }}</div>
+					</div>
+				{% endfor %}
+			</div>
+			<div class="chatbox">
+				<div class="topbar">
+					<h2 id="contactname"></h2>
+				</div>
+				<div class="chatarea" id="chatarea"></div>
+				<div class="messagebar">
+					<input type="text" name="typedmessage" id="typedmessage" onsubmit="return sendMessage()"/>
+					<button id="sendmessage" onclick="return sendMessage()">
+						Send
+					</button>
+				</div>
+			</div>
+		</main>
+        {% csrf_token %}
+		<script>
+
+			function selectContact(contact) {
+				var activeContact = document.querySelector(".active-contact");
+				if (activeContact) {
+					activeContact.classList.remove("active-contact");
+				}
+				contact.classList.add("active-contact");
+				document.querySelector("#contactname").textContent =
+					contact.textContent;
+				if(contact.childElementCount > 1){
+					contact.removeChild(contact.lastElementChild);
+				}
+				fetch("{% url 'loadchat' %}", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json", // Indicate that the request body is JSON
+                        'X-CSRFToken': document.querySelector("[name='csrfmiddlewaretoken']").value
+					},
+					body: JSON.stringify({
+                        "reciever_id": `${contact.dataset.id}`,
+                    })
+				}).then(response => response.json())
+                .then(messages => {
+                    var id = parseInt(contact.dataset.id);
+					const chatArea = document.querySelector("#chatarea");
+					chatArea.innerHTML = '';
+					messages.messages.forEach(message => {
+						chatArea.innerHTML += `<div class="chat ${(message.Sender_id != id) ? 'sent' : 'recieved'}">
+							<div class="message"><span class="messagebody">${message.message}</span><span class="timestamp">${message.message_time.slice(11, 16)}</span></div>
+						</div>`;
+					})
+                });
+			}
+
+			const chatSocket = new WebSocket(
+				"ws://" + window.location.host + "/ws/chat/"
+			);
+
+			chatSocket.onmessage = function (e) {
+				const data = JSON.parse(e.data);
+				const type = data["type"];
+				if (type === "message") {
+					const message = data["message"];
+					var currentDate = new Date();
+					var currentTime =
+						currentDate.getHours().toString() +
+						":" +
+						currentDate.getMinutes().toString();
+					var id = `${data['id']}`;
+					const activeContact = document.querySelector('.active-contact');
+					if (activeContact && activeContact.dataset.id === id) {
+						const chatArea = document.querySelector("#chatarea");
+						chatArea.innerHTML += `<div class="chat recieved">
+						<div class="message"><span class="messagebody">${message}</span><span class="timestamp">${currentTime}</span></div>
+							</div>`;
+					}
+					else{
+						var dot = document.createElement('div');
+						dot.classList.add('dot');
+						var contact = document.querySelector(`[data-id='${id}']`);
+						contact.appendChild(dot);
+					}
+				} else if (type === "connected") {
+					var id = data["id"];
+					const message = data["message"];
+					var contacts = document.querySelector("#contacts");
+					var duplicateContact = document.querySelector(`[data-id='${id}']`);
+					if (duplicateContact === null)
+					contacts.innerHTML += `<div class="contact" onclick="return selectContact(this)" data-id="${id}">
+						<div class="name">${message}</div>
+					</div>`;
+				} else if (type === "disconnected") {
+					var id = data["id"];
+					var remove = data["remove"]
+					const message = data["message"];
+					if (remove){
+						var contactToRemove = document.querySelector(
+							`[data-id="${id}"]`
+						);
+						contactToRemove.parentNode.removeChild(contactToRemove);
+					}
+				}
+			};
+
+			chatSocket.onclose = function (e) {
+				console.error("Chat socket closed unexpectedly");
+			};
+
+			// Send message to server
+			function sendMessage() {
+				var message = document.querySelector("#typedmessage").value;
+				var contact = document.querySelector(".active-contact");
+				if (contact === null) {
+					alert("Select a Contact");
+					return;
+				}
+				var id = contact.dataset.id;
+				document.querySelector("#typedmessage").value = "";
+				var currentDate = new Date();
+				var currentTime =
+					currentDate.getHours().toString() +
+					":" +
+					currentDate.getMinutes().toString();
+				const chatArea = document.querySelector("#chatarea");
+				chatArea.innerHTML += `<div class="chat sent">
+                    <div class="message"><span class="messagebody">${message}</span><span class="timestamp">${currentTime}</span></div>
+                </div>`;
+				chatSocket.send(
+					JSON.stringify({
+						message: message,
+						reciever_id: id,
+					})
+				);
+			}
+		</script>
+	</body>
+</html>
